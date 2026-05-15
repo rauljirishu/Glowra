@@ -1,0 +1,10 @@
+{
+  "name": "Glowra",
+  "description": "An ultra-premium AI fashion & beauty assistant focused on color analysis, styling, and makeup intelligence.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

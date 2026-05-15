@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Georgia", serif;
+  --font-display: "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  --glow-pink: #FF8E8E;
+  --glow-purple: #8E8EFF;
+  --glow-peach: #FFDAB9;
+  --glow-lavender: #E2E2FB;
+  --glow-coral: #F8AD9D;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom animations from Artistic Flair theme */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.holographic-gradient {
+  background: linear-gradient(135deg, #FFD1D1 0%, #C3BEF0 50%, #7BC9FF 100%);
+}
+
+.glow-text {
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(to right, #FF8E8E, #8E8EFF);
+}
