@@ -19,7 +19,7 @@ create table if not exists public.profiles (
 create table if not exists public.analysis_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  type text not null check (type in ('color_suit', 'hair_analysis')),
+  type text not null check (type in ('color_suit', 'hair_analysis', 'makeup_analysis')),
   image_path text not null,
   answers_json jsonb not null default '{}'::jsonb,
   status text not null default 'completed',

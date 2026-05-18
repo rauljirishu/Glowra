@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { createClient, type Session, type User } from "@supabase/supabase-js";
 import {
@@ -12,6 +12,8 @@ import {
   Heart,
   LogOut,
   Palette,
+  Brush,
+  Camera,
   Scissors,
   Settings,
   ShieldCheck,
@@ -21,8 +23,8 @@ import {
   Wand2,
 } from "lucide-react";
 
-type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "history" | "premium" | "terms" | "settings";
-type AnalysisKind = "color_suit" | "hair_analysis";
+type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "makeup" | "history" | "premium" | "terms" | "settings";
+type AnalysisKind = "color_suit" | "hair_analysis" | "makeup_analysis";
 
 type Profile = {
   user_id: string;
@@ -60,6 +62,7 @@ const navItems: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Dashboard", icon: Sparkles },
   { id: "color", label: "Color AI", icon: Palette },
   { id: "hair", label: "Hair AI", icon: Scissors },
+  { id: "makeup", label: "Makeup AI", icon: Brush },
   { id: "history", label: "History", icon: History },
   { id: "premium", label: "Premium", icon: Crown },
   { id: "settings", label: "Settings", icon: Settings },
@@ -79,6 +82,14 @@ const hairQuestions = [
   ["maintenance", "Maintenance level?", "Low, medium, high"],
   ["preferredStyle", "Preferred style?", "Korean hush cut, butterfly cut, bob, layers, bangs"],
   ["occasion", "Purpose?", "Daily refresh, special event, professional look, full makeover"],
+];
+
+const makeupQuestions = [
+  ["skinTone", "Your skin tone range?", "Fair, light, medium, tan, deep"],
+  ["undertone", "Your undertone?", "Warm, cool, olive, neutral, not sure"],
+  ["finish", "Preferred skin finish?", "Dewy, satin, matte, glass skin"],
+  ["occasion", "Main makeup occasion?", "Daily, party, wedding, office, date"],
+  ["comfort", "Color comfort level?", "Soft nude, rosy, glam, bold, experimental"],
 ];
 
 const palette = ["#F8AD9D", "#FFDAB9", "#FEC5BB", "#FFF1C7", "#7BC9FF"];
@@ -348,6 +359,12 @@ function readAsDataUrl(file: File) {
   });
 }
 
+async function dataUrlToFile(dataUrl: string, fileName: string) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName, { type: blob.type || "image/jpeg" });
+}
+
 function isInvalidSupabaseKey(error?: { message?: string } | null) {
   return Boolean(error?.message?.toLowerCase().includes("invalid api key"));
 }
@@ -402,6 +419,36 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
         : { base: "Clear satin", cheek: "Cool pink", lip: "Rose tint" },
       palette: warm ? ["#F8AD9D", "#FFDAB9", "#FEC5BB", "#FFF1C7", "#7BC9FF"] : ["#F4A7B9", "#D9D7FF", "#F7F5FF", "#9DB7E8", "#27385E"],
       premiumNotes: premium ? ["Use the two brightest colors near your face.", "Keep accessories in the same temperature family."] : ["Upgrade for detailed outfit and product notes."],
+    };
+  }
+
+  if (kind === "makeup_analysis") {
+    const cool = `${answers.undertone || ""} ${answers.comfort || ""}`.toLowerCase().includes("cool");
+    return {
+      lookName: cool ? "Rose Glass K-Beauty" : "Peach Glow K-Beauty",
+      confidence: premium ? 0.92 : 0.84,
+      summary: cool
+        ? "Cool rose, mauve, pearl, and soft berry shades will look clean, romantic, and camera-friendly."
+        : "Peach, coral, champagne, and warm rose shades will make your face look fresh and naturally lifted.",
+      makeupPalette: cool
+        ? [
+            { type: "Base", name: "Neutral ivory satin", hex: "#F4D7CF" },
+            { type: "Blush", name: "Cool rose flush", hex: "#E59AAF" },
+            { type: "Eyeshadow", name: "Lavender taupe", hex: "#B9A6D8" },
+            { type: "Lip", name: "Berry rose tint", hex: "#B24C6B" },
+            { type: "Highlighter", name: "Pearl beam", hex: "#F7F5FF" },
+            { type: "Contour", name: "Soft cocoa shadow", hex: "#8A695F" },
+          ]
+        : [
+            { type: "Base", name: "Warm beige satin", hex: "#F0C6A8" },
+            { type: "Blush", name: "Peach coral bloom", hex: "#F58D7A" },
+            { type: "Eyeshadow", name: "Caramel shimmer", hex: "#B8784E" },
+            { type: "Lip", name: "Warm rose gloss", hex: "#D96172" },
+            { type: "Highlighter", name: "Champagne glow", hex: "#FFE6B8" },
+            { type: "Contour", name: "Milk tea bronze", hex: "#A96F45" },
+          ],
+      steps: ["Use a thin satin base.", "Place blush high on cheeks.", "Keep shimmer near inner eye.", "Use a blurred glossy lip."],
+      avoidShades: cool ? ["Orange coral", "Mustard gold", "Warm brown lip"] : ["Icy lilac", "Blue red lip", "Ash gray contour"],
     };
   }
 
@@ -561,6 +608,7 @@ export default function App() {
         {view === "dashboard" && <Dashboard profile={profile} latestColor={latestColor} latestHair={latestHair} setView={setView} />}
         {view === "color" && <AnalysisStudio kind="color_suit" questions={colorQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "hair" && <AnalysisStudio kind="hair_analysis" questions={hairQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
+        {view === "makeup" && <AnalysisStudio kind="makeup_analysis" questions={makeupQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "history" && <HistoryView history={history} refresh={loadHistory} />}
         {view === "premium" && <Premium session={session} profile={profile} setMessage={setMessage} />}
         {view === "settings" && <Preferences profile={profile} setProfile={setProfile} setMessage={setMessage} />}
@@ -831,6 +879,7 @@ function Dashboard({
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <StudioButton icon={Palette} title="Color Suit Analysis" text="Season, palette, makeup, outfit shades." onClick={() => setView("color")} />
             <StudioButton icon={Scissors} title="Hair Style Analysis" text="Haircut, face balance, styling and care." onClick={() => setView("hair")} />
+            <StudioButton icon={Brush} title="Makeup Shade Analysis" text="Base, blush, lip, eye, contour, glow shades." onClick={() => setView("makeup")} />
           </div>
         </GlassCard>
 
@@ -871,11 +920,63 @@ function AnalysisStudio({
   onLocalResult: (kind: AnalysisKind, result: Record<string, any>) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<Record<string, any> | null>(null);
   const [busy, setBusy] = useState(false);
-  const title = kind === "color_suit" ? "Color Suit AI" : "Hair Style AI";
-  const endpoint = kind === "color_suit" ? "/api/glowra/analyze/color" : "/api/glowra/analyze/hair";
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const title = kind === "color_suit" ? "Color Suit AI" : kind === "hair_analysis" ? "Hair Style AI" : "Makeup Shade AI";
+  const endpoint = kind === "color_suit" ? "/api/glowra/analyze/color" : kind === "hair_analysis" ? "/api/glowra/analyze/hair" : "/api/glowra/analyze/makeup";
+
+  async function openCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      streamRef.current = stream;
+      setCameraOpen(true);
+      window.setTimeout(() => {
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      }, 0);
+    } catch (error: any) {
+      setMessage(error.message || "Camera access was blocked. You can still upload a selfie.");
+    }
+  }
+
+  function closeCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraOpen(false);
+  }
+
+  async function captureSelfie() {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 720;
+    canvas.height = video.videoHeight || 960;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.translate(canvas.width, 0);
+    context.scale(-1, 1);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const selfie = await dataUrlToFile(dataUrl, `glowra-selfie-${Date.now()}.jpg`);
+    setFile(selfie);
+    setPhotoUrl(dataUrl);
+    closeCamera();
+  }
+
+  function onFileChange(nextFile: File | null) {
+    setFile(nextFile);
+    if (!nextFile) {
+      setPhotoUrl("");
+      return;
+    }
+    readAsDataUrl(nextFile).then(setPhotoUrl).catch(() => setPhotoUrl(""));
+  }
+
+  useEffect(() => () => closeCamera(), []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -935,9 +1036,29 @@ function AnalysisStudio({
               <Upload className="h-8 w-8 text-[#FF8E8E]" />
             </span>
             <span className="text-sm font-black">{file ? file.name : "Single click or drag to select an image"}</span>
-            <span className="mt-1 text-xs text-[#777]">{kind === "color_suit" ? "Selfie or outfit image" : "Face and hair image"}</span>
-            <input type="file" accept="image/*" className="hidden" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+            <span className="mt-1 text-xs text-[#777]">{kind === "color_suit" ? "Selfie or outfit image" : kind === "hair_analysis" ? "Face and hair image" : "Clean selfie for makeup shades"}</span>
+            <input type="file" accept="image/*" className="hidden" onChange={(event) => onFileChange(event.target.files?.[0] || null)} />
           </label>
+          <button type="button" onClick={openCamera} className="liquid-panel flex items-center justify-center gap-2 rounded-full px-6 py-4 text-sm font-black transition hover:scale-[1.02]">
+            <Camera className="h-4 w-4" />
+            Take live selfie
+          </button>
+          {cameraOpen && (
+            <div className="glass rounded-[32px] p-4">
+              <video ref={videoRef} autoPlay playsInline muted className="aspect-[3/4] w-full rounded-[26px] bg-black object-cover [transform:scaleX(-1)]" />
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button type="button" onClick={captureSelfie} className="luxury-button rounded-full px-5 py-3 text-sm font-black text-white">
+                  Capture selfie
+                </button>
+                <button type="button" onClick={closeCamera} className="liquid-panel rounded-full px-5 py-3 text-sm font-black">
+                  Close camera
+                </button>
+              </div>
+            </div>
+          )}
+          {photoUrl && (
+            <PhotoTryOn kind={kind} result={result || localAiResult(kind, answers, Boolean(profile?.is_premium))} photoUrl={photoUrl} compact />
+          )}
           {questions.map(([key, label, placeholder]) => (
             <Field key={key} label={label} value={answers[key] || ""} placeholder={placeholder} onChange={(event) => setAnswers({ ...answers, [key]: event.target.value })} />
           ))}
@@ -949,7 +1070,7 @@ function AnalysisStudio({
 
       <GlassCard className="p-6">
         <h2 className="text-3xl font-black tracking-normal">Result</h2>
-        {result ? <ResultJson result={result} /> : <EmptyResult kind={kind} />}
+        {result ? <ResultJson result={result} kind={kind} photoUrl={photoUrl} /> : <EmptyResult kind={kind} />}
       </GlassCard>
     </main>
   );
@@ -966,10 +1087,87 @@ function EmptyResult({ kind }: { kind: AnalysisKind }) {
   );
 }
 
-function ResultJson({ result }: { result: Record<string, any> }) {
+function PhotoTryOn({
+  kind,
+  result,
+  photoUrl,
+  compact = false,
+}: {
+  kind: AnalysisKind;
+  result: Record<string, any>;
+  photoUrl: string;
+  compact?: boolean;
+}) {
+  const colors = result.palette || palette;
+  const makeup = result.makeupPalette || [
+    { type: "Blush", name: "Rose glow", hex: "#E59AAF" },
+    { type: "Lip", name: "Warm rose gloss", hex: "#D96172" },
+    { type: "Eyeshadow", name: "Pearl taupe", hex: "#B9A6D8" },
+  ];
+  const hairColor = result.hairColors?.[0]?.hex || "#3B2418";
+
+  return (
+    <div className={cx("glass overflow-hidden rounded-[32px] p-5", compact && "p-4")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#FF8E8E]">AI try-on preview</p>
+          <h4 className="mt-1 text-2xl font-black tracking-normal">
+            {kind === "color_suit" ? "Palette on your photo" : kind === "hair_analysis" ? "Hair color and style preview" : "Makeup shades on your selfie"}
+          </h4>
+        </div>
+        <span className="rounded-full bg-white/70 px-4 py-2 text-xs font-black uppercase text-[#666]">Live photo</span>
+      </div>
+
+      <div className={cx("mt-5 grid gap-4", compact ? "lg:grid-cols-1" : "lg:grid-cols-[0.9fr_1.1fr]")}>
+        <div className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-[30px] bg-black shadow-2xl shadow-purple-200/30">
+          <img src={photoUrl} alt="User selfie try-on" className="h-full w-full object-cover" />
+          {kind === "color_suit" && (
+            <div className="absolute inset-x-0 bottom-0 grid grid-cols-5">
+              {colors.slice(0, 5).map((color: string) => (
+                <div key={color} className="h-24 opacity-70 mix-blend-soft-light" style={{ background: color }} />
+              ))}
+            </div>
+          )}
+          {kind === "makeup_analysis" && (
+            <>
+              <div className="absolute left-[24%] top-[42%] h-14 w-16 rounded-full blur-md opacity-55" style={{ background: makeup.find((item: any) => item.type === "Blush")?.hex || "#E59AAF" }} />
+              <div className="absolute right-[24%] top-[42%] h-14 w-16 rounded-full blur-md opacity-55" style={{ background: makeup.find((item: any) => item.type === "Blush")?.hex || "#E59AAF" }} />
+              <div className="absolute left-1/2 top-[60%] h-5 w-24 -translate-x-1/2 rounded-full opacity-75 blur-[1px]" style={{ background: makeup.find((item: any) => item.type === "Lip")?.hex || "#D96172" }} />
+              <div className="absolute left-[28%] top-[34%] h-4 w-20 rounded-full opacity-45 blur-sm" style={{ background: makeup.find((item: any) => item.type === "Eyeshadow")?.hex || "#B9A6D8" }} />
+              <div className="absolute right-[28%] top-[34%] h-4 w-20 rounded-full opacity-45 blur-sm" style={{ background: makeup.find((item: any) => item.type === "Eyeshadow")?.hex || "#B9A6D8" }} />
+            </>
+          )}
+          {kind === "hair_analysis" && (
+            <div className="absolute inset-x-[16%] top-[6%] h-[38%] rounded-t-[90px] rounded-b-[42px] opacity-65 blur-[1px] mix-blend-multiply" style={{ background: `linear-gradient(180deg, ${hairColor}, transparent)` }} />
+          )}
+          <div className="absolute left-4 top-4 rounded-full bg-white/80 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-[#555]">
+            Try AI
+          </div>
+        </div>
+
+        {!compact && (
+          <div className="grid content-center gap-3">
+            {(kind === "makeup_analysis" ? makeup : kind === "hair_analysis" ? result.hairColors || defaultHairColors : colors.slice(0, 5).map((hex: string, index: number) => ({ name: colorNames[String(hex).toUpperCase()] || `Shade ${index + 1}`, hex }))).map((item: any) => (
+              <div key={`${item.name}-${item.hex}`} className="liquid-panel flex items-center gap-4 rounded-[24px] p-4">
+                <span className="h-12 w-12 rounded-2xl shadow-inner" style={{ background: item.hex || item }} />
+                <div>
+                  <p className="text-sm font-black">{item.name || colorNames[String(item).toUpperCase()] || item}</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#777]">{item.type || item.hex || item}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResultJson({ result, kind, photoUrl }: { result: Record<string, any>; kind: AnalysisKind; photoUrl?: string }) {
   const colors = result.palette || palette;
   const isColorResult = Boolean(result.season || result.bestColors || result.makeup);
   const isHairResult = Boolean(result.styles || result.faceShape);
+  const isMakeupResult = Boolean(result.makeupPalette || result.lookName);
 
   return (
     <div className="mt-5 grid gap-5">
@@ -991,6 +1189,8 @@ function ResultJson({ result }: { result: Record<string, any> }) {
       </div>
 
       <BeautyAnalytics result={result} />
+
+      {photoUrl && <PhotoTryOn kind={kind} result={result} photoUrl={photoUrl} />}
 
       {isColorResult && (
         <>
@@ -1031,6 +1231,30 @@ function ResultJson({ result }: { result: Record<string, any> }) {
               </div>
             </div>
           )}
+        </>
+      )}
+
+      {isMakeupResult && (
+        <>
+          <div>
+            <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-[#777]">Makeup shades that suit you</h4>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {(result.makeupPalette || []).map((shade: { type: string; name: string; hex: string }) => (
+                <div key={`${shade.type}-${shade.name}`} className="glass overflow-hidden rounded-[32px] shadow-lg shadow-pink-100/30">
+                  <div className="h-40" style={{ background: shade.hex }} />
+                  <div className="p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FF8E8E]">{shade.type}</p>
+                    <h5 className="mt-1 text-xl font-black tracking-normal">{shade.name}</h5>
+                    <p className="mt-1 text-sm font-semibold text-[#777]">{shade.hex}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <InfoList title="Application guide" items={result.steps || []} />
+            <InfoList title="Avoid shades" items={result.avoidShades || []} />
+          </div>
         </>
       )}
 
@@ -1126,7 +1350,7 @@ function HistoryView({ history, refresh }: { history: HistoryItem[]; refresh: ()
           return (
             <div key={item.id} className="rounded-[24px] bg-white/60 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-black">{item.type === "color_suit" ? "Color Suit" : "Hair Analysis"}</h2>
+                <h2 className="text-lg font-black">{item.type === "color_suit" ? "Color Suit" : item.type === "hair_analysis" ? "Hair Analysis" : "Makeup Analysis"}</h2>
                 <span className="rounded-full bg-black px-3 py-1 text-xs font-black text-white">{new Date(item.created_at).toLocaleString()}</span>
               </div>
               <p className="mt-2 text-sm leading-6 text-[#666]">{result.description || result.summary || "Saved result"}</p>

@@ -1,4 +1,5 @@
 import express from "express";
+import net from "net";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -9,10 +10,32 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
-const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-type AnalysisType = "color_suit" | "hair_analysis";
+function isPortAvailable(port: number) {
+  return new Promise<boolean>((resolve) => {
+    const server = net.createServer();
+
+    server.unref();
+    server.on("error", () => resolve(false));
+    server.listen({ port, host: "0.0.0.0" }, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+async function findAvailablePort(preferredPort: number, attempts = 25) {
+  for (let offset = 0; offset <= attempts; offset += 1) {
+    const candidate = preferredPort + offset;
+    if (await isPortAvailable(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`No open port found near ${preferredPort}.`);
+}
+
+type AnalysisType = "color_suit" | "hair_analysis" | "makeup_analysis";
 
 type AnalyzeRequest = {
   imagePath: string;
@@ -105,6 +128,25 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
     };
   }
 
+  if (type === "makeup_analysis") {
+    return {
+      lookName: "Peach Glow K-Beauty",
+      confidence: 0.82,
+      summary:
+        "Peach, coral, champagne, and warm rose shades will make the face look fresh and naturally lifted.",
+      makeupPalette: [
+        { type: "Base", name: "Warm beige satin", hex: "#F0C6A8" },
+        { type: "Blush", name: "Peach coral bloom", hex: "#F58D7A" },
+        { type: "Eyeshadow", name: "Caramel shimmer", hex: "#B8784E" },
+        { type: "Lip", name: "Warm rose gloss", hex: "#D96172" },
+        { type: "Highlighter", name: "Champagne glow", hex: "#FFE6B8" },
+        { type: "Contour", name: "Milk tea bronze", hex: "#A96F45" },
+      ],
+      steps: ["Use a thin satin base", "Place blush high on cheeks", "Use a blurred glossy lip"],
+      avoidShades: ["Icy lilac", "Blue red lip", "Ash gray contour"],
+    };
+  }
+
   return {
     faceShape: "Soft oval",
     confidence: 0.74,
@@ -162,6 +204,21 @@ JSON schema:
   "makeup": { "base": "string", "cheek": "string", "lip": "string" },
   "palette": ["#RRGGBB"],
   "premiumNotes": ["string"]
+}`;
+  }
+
+  if (type === "makeup_analysis") {
+    return `${shared}
+Task: full makeup shade analysis and virtual try-on guidance from the user's real selfie.
+Return shades for base, blush, eyeshadow, eyeliner, mascara tone, lip, highlighter, contour, and brow color where appropriate.
+JSON schema:
+{
+  "lookName": "string",
+  "confidence": 0.0,
+  "summary": "string",
+  "makeupPalette": [{ "type": "string", "name": "string", "hex": "#RRGGBB" }],
+  "steps": ["string"],
+  "avoidShades": ["string"]
 }`;
   }
 
@@ -259,6 +316,9 @@ async function createAnalysisHandler(type: AnalysisType, req: express.Request, r
 
 async function startServer() {
   const app = express();
+  const appPort = await findAvailablePort(PORT);
+  const hmrPort = await findAvailablePort(appPort + 1);
+  const appUrl = process.env.APP_URL || `http://localhost:${appPort}`;
 
   app.post("/api/payments/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
@@ -314,6 +374,14 @@ async function startServer() {
     }
   });
 
+  app.post("/api/glowra/analyze/makeup", async (req, res, next) => {
+    try {
+      await createAnalysisHandler("makeup_analysis", req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/payments/create-checkout-session", async (req, res, next) => {
     try {
       if (!stripe || !process.env.STRIPE_PRICE_ID) {
@@ -324,8 +392,8 @@ async function startServer() {
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-        success_url: `${APP_URL}?payment=success`,
-        cancel_url: `${APP_URL}?payment=cancelled`,
+        success_url: `${appUrl}?payment=success`,
+        cancel_url: `${appUrl}?payment=cancelled`,
         metadata: { userId, plan: "premium_beta" },
       });
 
@@ -344,7 +412,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: { port: hmrPort, host: "localhost" } },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -356,8 +424,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Glowra Server running at http://localhost:${PORT}`);
+  app.listen(appPort, "0.0.0.0", () => {
+    console.log(`Glowra Server running at ${appUrl}`);
   });
 }
 
