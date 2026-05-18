@@ -2,62 +2,346 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
+import Stripe from "stripe";
 import dotenv from "dotenv";
 
 dotenv.config();
 
+const PORT = Number(process.env.PORT || 3000);
+const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+type AnalysisType = "color_suit" | "hair_analysis";
+
+type AnalyzeRequest = {
+  imagePath: string;
+  image: {
+    data: string;
+    mimeType: string;
+  };
+  answers: Record<string, string>;
+};
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase =
+  supabaseUrl && supabaseServiceRoleKey
+    ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: { persistSession: false },
+      })
+    : null;
+
+const ai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { "User-Agent": "glowra-real-ai-beta" },
+      },
+    })
+  : null;
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2024-12-18.acacia",
+    })
+  : null;
+
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error("Supabase server variables are not configured.");
+  }
+  return supabase;
+}
+
+async function getUserIdFromRequest(req: express.Request) {
+  const token = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!token) {
+    throw Object.assign(new Error("Missing bearer token."), { status: 401 });
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) {
+    throw Object.assign(new Error("Invalid user session."), { status: 401 });
+  }
+
+  return data.user.id;
+}
+
+function stripDataUrlPrefix(data: string) {
+  return data.includes(",") ? data.split(",").pop() || "" : data;
+}
+
+function safeJson(text: string | undefined, fallback: unknown) {
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+function fallbackResult(type: AnalysisType, premium: boolean) {
+  if (type === "color_suit") {
+    return {
+      season: "Spring Warm",
+      subType: "Clear Peach",
+      confidence: 0.78,
+      description:
+        "Warm, bright, peach-based tones are the strongest match. Keep contrast fresh rather than heavy.",
+      bestColors: ["Coral", "Warm ivory", "Peach", "Light camel", "Clear aqua"],
+      avoidColors: ["Dusty mauve", "Charcoal", "Icy gray"],
+      makeup: {
+        base: "Luminous satin skin",
+        cheek: "Peach-coral blush",
+        lip: "Warm rose gloss",
+      },
+      palette: ["#F8AD9D", "#FFDAB9", "#FEC5BB", "#FFF1C7", "#7BC9FF"],
+      premiumNotes: premium
+        ? ["Try peach beige tailoring", "Use gold jewelry near the face"]
+        : ["Upgrade for detailed outfit and shopping guidance"],
+    };
+  }
+
+  return {
+    faceShape: "Soft oval",
+    confidence: 0.74,
+    summary:
+      "Face-framing layers and airy volume will balance the face while keeping the look soft and current.",
+    hairColors: [
+      { name: "Glossy Espresso", hex: "#3B2418", note: "Best for a polished Korean salon finish." },
+      { name: "Mocha Brown", hex: "#6B3F27", note: "Softens the face while keeping rich depth." },
+      { name: "Milk Tea Brown", hex: "#A96F45", note: "Brightens warm and neutral looks without harsh contrast." },
+      { name: "Soft Black", hex: "#2B2B2B", note: "Clean, healthy shine for a minimal luxury style." },
+    ],
+    styles: [
+      {
+        name: "Korean Hush Cut",
+        reason: "Adds movement without removing too much length.",
+        maintenance: "Medium",
+      },
+      {
+        name: "Butterfly Layers",
+        reason: "Creates lift around the cheekbones and jawline.",
+        maintenance: "Medium-high",
+      },
+      {
+        name: "Soft Curtain Bangs",
+        reason: "Frames the eyes while staying easy to grow out.",
+        maintenance: "Low-medium",
+      },
+    ],
+    careTips: ["Use a light mousse at roots", "Blow-dry away from the face"],
+    premiumAlternatives: premium
+      ? ["C-shape perm with long layers", "Glossy mocha brown color refresh"]
+      : ["Upgrade for color pairings and salon-ready cut notes"],
+  };
+}
+
+function buildPrompt(type: AnalysisType, answers: Record<string, string>, premium: boolean) {
+  const shared = `
+You are Glowra, a luxury Korean fashion and beauty AI. Analyze the uploaded image and questionnaire answers.
+Return only valid JSON. Avoid medical claims and avoid identity guesses. Be practical, kind, and specific.
+Questionnaire answers: ${JSON.stringify(answers)}
+Premium user: ${premium}
+`;
+
+  if (type === "color_suit") {
+    return `${shared}
+Task: Korean personal color analysis.
+JSON schema:
+{
+  "season": "Spring Warm | Summer Cool | Autumn Warm | Winter Cool",
+  "subType": "string",
+  "confidence": 0.0,
+  "description": "string",
+  "bestColors": ["string"],
+  "avoidColors": ["string"],
+  "makeup": { "base": "string", "cheek": "string", "lip": "string" },
+  "palette": ["#RRGGBB"],
+  "premiumNotes": ["string"]
+}`;
+  }
+
+  return `${shared}
+Task: hairstyle and haircut analysis.
+JSON schema:
+{
+  "faceShape": "string",
+  "confidence": 0.0,
+  "summary": "string",
+  "hairColors": [{ "name": "string", "hex": "#RRGGBB", "note": "string" }],
+  "styles": [{ "name": "string", "reason": "string", "maintenance": "string" }],
+  "careTips": ["string"],
+  "premiumAlternatives": ["string"]
+}`;
+}
+
+async function runAnalysis(type: AnalysisType, body: AnalyzeRequest, premium: boolean) {
+  const fallback = fallbackResult(type, premium);
+  if (!ai) return fallback;
+
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: [
+      {
+        inlineData: {
+          mimeType: body.image.mimeType,
+          data: stripDataUrlPrefix(body.image.data),
+        },
+      },
+      { text: buildPrompt(type, body.answers, premium) },
+    ],
+    config: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  return safeJson(response.text, fallback);
+}
+
+async function createAnalysisHandler(type: AnalysisType, req: express.Request, res: express.Response) {
+  const userId = await getUserIdFromRequest(req);
+  const body = req.body as AnalyzeRequest;
+
+  if (!body.imagePath || !body.image?.data || !body.image?.mimeType?.startsWith("image/")) {
+    return res.status(400).json({ error: "A valid uploaded image is required." });
+  }
+
+  const client = requireSupabase();
+  const { data: profile } = await client
+    .from("profiles")
+    .select("is_premium")
+    .eq("user_id", userId)
+    .single();
+
+  const premium = Boolean(profile?.is_premium);
+  const result = await runAnalysis(type, body, premium);
+  const confidence = Number(result?.confidence || 0);
+
+  const { data: requestRow, error: requestError } = await client
+    .from("analysis_requests")
+    .insert({
+      user_id: userId,
+      type,
+      image_path: body.imagePath,
+      answers_json: body.answers,
+      status: "completed",
+    })
+    .select("id")
+    .single();
+
+  if (requestError || !requestRow) {
+    throw requestError || new Error("Could not save analysis request.");
+  }
+
+  const { error: resultError } = await client.from("analysis_results").insert({
+    request_id: requestRow.id,
+    result_json: result,
+    confidence,
+    model: ai ? GEMINI_MODEL : "fallback-local",
+    premium,
+  });
+
+  if (resultError) {
+    throw resultError;
+  }
+
+  res.json({
+    requestId: requestRow.id,
+    result,
+    premium,
+    model: ai ? GEMINI_MODEL : "fallback-local",
+  });
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
 
-  // Initialize Gemini
-  const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(503).json({ error: "Stripe webhook is not configured." });
+    }
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        req.header("stripe-signature") || "",
+        process.env.STRIPE_WEBHOOK_SECRET,
+      );
+    } catch (error: any) {
+      return res.status(400).send(`Webhook Error: ${error.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const userId = session.metadata?.userId;
+      if (userId) {
+        const client = requireSupabase();
+        await client.from("payments").upsert({
+          user_id: userId,
+          stripe_customer_id:
+            typeof session.customer === "string" ? session.customer : session.customer?.id,
+          checkout_session_id: session.id,
+          status: "completed",
+          plan: session.metadata?.plan || "premium_beta",
+        });
+        await client.from("profiles").update({ is_premium: true }).eq("user_id", userId);
       }
+    }
+
+    res.json({ received: true });
+  });
+
+  app.use(express.json({ limit: "12mb" }));
+
+  app.post("/api/glowra/analyze/color", async (req, res, next) => {
+    try {
+      await createAnalysisHandler("color_suit", req, res);
+    } catch (error) {
+      next(error);
     }
   });
 
-  app.use(express.json());
-
-  // API Route: AI Fashion/Beauty analysis
-  app.post("/api/glowra/analyze", async (req, res) => {
-    const { task, data } = req.body;
-    
+  app.post("/api/glowra/analyze/hair", async (req, res, next) => {
     try {
-      let prompt = "";
-      switch (task) {
-        case "color-analysis":
-          prompt = "Act as an expert Korean beauty consultant. Analyze these coordinates/skin-tone preferences and provide a seasonal color palette (Spring, Summer, Autumn, Winter) with specific makeup and clothing color recommendations. Format as JSON with fields: season, subType, description, colors (array).";
-          break;
-        case "hair-stylist":
-          prompt = "Act as a luxury AI hair stylist. Based on the user's facial shape (describe or provide features), suggest 3 trending hairstyles (e.g., Butterfly Cut, Hush Cut, Block Cut) that would suit them. Provide styling tips. Format as JSON with fields: styles (array of objects {name, description, tip}).";
-          break;
-        case "makeup-advisor":
-          prompt = "Act as a top K-beauty makeup artist. Suggest a makeup look for a special occasion. Focus on skin finish, eye look, and lip products. Use 'Glowra' aesthetic vocabulary. Format as JSON with fields: lookName, skinTip, eyeTip, lipTip.";
-          break;
-        default:
-          prompt = "Provide a general beauty-tech insight for the Glowra app.";
+      await createAnalysisHandler("hair_analysis", req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/payments/create-checkout-session", async (req, res, next) => {
+    try {
+      if (!stripe || !process.env.STRIPE_PRICE_ID) {
+        return res.status(503).json({ error: "Stripe checkout is not configured." });
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-        }
+      const userId = await getUserIdFromRequest(req);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+        success_url: `${APP_URL}?payment=success`,
+        cancel_url: `${APP_URL}?payment=cancelled`,
+        metadata: { userId, plan: "premium_beta" },
       });
 
-      res.json(JSON.parse(response.text));
-    } catch (error: any) {
-      console.error("AI Error:", error);
-      res.status(500).json({ error: "Glowra AI is currently resting. Please try again soon." });
+      res.json({ url: session.url });
+    } catch (error) {
+      next(error);
     }
   });
 
-  // Vite middleware for development
+  app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Glowra API error:", error);
+    res.status(error.status || 500).json({
+      error: error.message || "Glowra AI is currently resting. Please try again soon.",
+    });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -65,10 +349,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
