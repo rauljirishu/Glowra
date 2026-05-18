@@ -428,8 +428,6 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [message, setMessage] = useState("");
 
-  const configured = Boolean(supabase);
-
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => {
@@ -549,14 +547,6 @@ export default function App() {
             )}
           </nav>
         </header>
-
-        {!configured && (
-          <GlassCard className="p-4">
-            <p className="text-sm font-semibold text-[#B45353]">
-              Supabase is not configured yet. Add `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and server keys in `.env` to enable login, storage, and saved analysis.
-            </p>
-          </GlassCard>
-        )}
 
         {message && (
           <button onClick={() => setMessage("")} className="luxury-button rounded-[26px] px-6 py-4 text-left text-sm font-bold text-white shadow-lg">
