@@ -35,7 +35,7 @@ async function findAvailablePort(preferredPort: number, attempts = 25) {
   throw new Error(`No open port found near ${preferredPort}.`);
 }
 
-type AnalysisType = "color_suit" | "hair_analysis" | "makeup_analysis";
+type AnalysisType = "color_suit" | "hair_analysis" | "makeup_analysis" | "face_body_analysis";
 
 type AnalyzeRequest = {
   imagePath: string;
@@ -147,6 +147,28 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
     };
   }
 
+  if (type === "face_body_analysis") {
+    return {
+      reportTitle: "Face and Body Harmony Report",
+      confidence: 0.84,
+      summary: "Your visual balance is strongest with bright face framing, open posture, and clean vertical styling.",
+      faceStructure: {
+        shape: "Soft oval",
+        balance: "86% facial harmony",
+        bestAngles: ["Soft front angle", "Slight three-quarter pose", "Relaxed shoulders"],
+      },
+      bodyStructure: {
+        frame: "Balanced vertical frame",
+        postureScore: "82% posture alignment",
+        proportionScore: "84% proportion balance",
+      },
+      skinCareTips: ["Use gentle cleanser twice daily", "Use sunscreen every morning", "Add hydrating serum before makeup"],
+      hairCareTips: ["Use lightweight conditioner on ends", "Add weekly gloss mask", "Use heat protectant before styling"],
+      stylingTips: ["Choose open collar outfits", "Use delicate accessories near the face", "Use vertical lines for taller balance"],
+      metrics: { harmony: 86, posture: 82, proportion: 84 },
+    };
+  }
+
   return {
     faceShape: "Soft oval",
     confidence: 0.74,
@@ -222,6 +244,24 @@ JSON schema:
 }`;
   }
 
+  if (type === "face_body_analysis") {
+    return `${shared}
+Task: face and body structure analysis for styling, skincare, haircare, and report generation.
+Analyze visible face shape, face harmony, posture, frame impression, and styling direction. Avoid sensitive identity, attractiveness scoring, body shaming, medical claims, or exact body measurements.
+JSON schema:
+{
+  "reportTitle": "string",
+  "confidence": 0.0,
+  "summary": "string",
+  "faceStructure": { "shape": "string", "balance": "string", "bestAngles": ["string"] },
+  "bodyStructure": { "frame": "string", "postureScore": "string", "proportionScore": "string" },
+  "skinCareTips": ["string"],
+  "hairCareTips": ["string"],
+  "stylingTips": ["string"],
+  "metrics": { "harmony": 0, "posture": 0, "proportion": 0 }
+}`;
+  }
+
   return `${shared}
 Task: hairstyle and haircut analysis.
 JSON schema:
@@ -259,6 +299,79 @@ async function runAnalysis(type: AnalysisType, body: AnalyzeRequest, premium: bo
   return safeJson(response.text, fallback);
 }
 
+function buildImageGenerationPrompt(type: AnalysisType, analysis: Record<string, any>, answers: Record<string, string>): string {
+  const basePrompt = `Create a high-quality, professional beauty and fashion image. The style should be modern, clean, and inspired by Korean beauty aesthetics. The person should look natural and confident. Studio lighting, soft background, professional photography style.`;
+
+  if (type === "color_suit") {
+    const season = analysis.season || "Spring Warm";
+    const bestColors = (analysis.bestColors || ["coral", "cream", "aqua"]).slice(0, 3).join(", ");
+    const makeup = analysis.makeup || { base: "satin", cheek: "coral", lip: "rose" };
+    return `${basePrompt}
+
+This is for a ${season} color analysis. The person should be wearing an outfit featuring these colors: ${bestColors}. 
+Makeup: ${makeup.base} base, ${makeup.cheek} blush, ${makeup.lip} lip color. 
+Style preference: ${answers.preferredStyle || "elegant"}. 
+The outfit should be styled for: ${answers.occasion || "everyday wear"}.
+Show a full body or half-body shot with clear visibility of the outfit colors and overall styling.`;
+  }
+
+  if (type === "hair_analysis") {
+    const style = analysis.styles?.[0]?.name || "Korean Hush Cut";
+    const hairColor = analysis.hairColors?.[0]?.name || "Glossy Espresso";
+    return `${basePrompt}
+
+This is for a hair styling recommendation. The person should have a ${style} hairstyle with ${hairColor} hair color.
+Hair texture: ${answers.hairTexture || "wavy"}. Maintenance level: ${answers.maintenance || "medium"}.
+Purpose: ${answers.occasion || "daily wear"}.
+Show a clear face shot focusing on the hairstyle and how it frames the face. Include shoulder-length view to see the full haircut.`;
+  }
+
+  if (type === "makeup_analysis") {
+    const lookName = analysis.lookName || "K-Beauty";
+    const palette = analysis.makeupPalette || [];
+    const baseShade = palette.find((p: any) => p.type === "Base")?.name || "warm satin";
+    const blushShade = palette.find((p: any) => p.type === "Blush")?.name || "coral";
+    const lipShade = palette.find((p: any) => p.type === "Lip")?.name || "rose";
+    const eyeShade = palette.find((p: any) => p.type === "Eyeshadow")?.name || "taupe";
+    return `${basePrompt}
+
+This is a ${lookName} makeup look. The person should be wearing:
+- Base: ${baseShade}
+- Blush: ${blushShade}
+- Eyeshadow: ${eyeShade}
+- Lips: ${lipShade}
+Skin tone: ${answers.skinTone || "medium"}. Undertone: ${answers.undertone || "warm"}.
+Show a close-up or medium shot of the face emphasizing the makeup application and how the colors look on the skin.`;
+  }
+
+  return basePrompt;
+}
+
+async function generateImage(type: AnalysisType, analysis: Record<string, any>, answers: Record<string, string>): Promise<string | null> {
+  if (!ai) return null;
+
+  try {
+    const prompt = buildImageGenerationPrompt(type, analysis, answers);
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash", // Use flash for faster image generation
+      contents: [
+        { text: prompt }
+      ]
+    });
+
+    if (!response) return null;
+    
+    // Check if the response contains a generated image
+    // Note: Gemini 2.5 flash may not support full image generation in all regions
+    // Return null if image generation isn't available
+    return null;
+  } catch (error: any) {
+    console.error("Image generation error:", error.message);
+    return null;
+  }
+}
+
 async function createAnalysisHandler(type: AnalysisType, req: express.Request, res: express.Response) {
   const userId = await getUserIdFromRequest(req);
   const body = req.body as AnalyzeRequest;
@@ -277,6 +390,9 @@ async function createAnalysisHandler(type: AnalysisType, req: express.Request, r
   const premium = Boolean(profile?.is_premium);
   const result = await runAnalysis(type, body, premium);
   const confidence = Number(result?.confidence || 0);
+
+  // Generate enhancement description for AI visualization
+  const enhancementDescription = buildImageGenerationPrompt(type, result, body.answers);
 
   const { data: requestRow, error: requestError } = await client
     .from("analysis_requests")
@@ -311,6 +427,8 @@ async function createAnalysisHandler(type: AnalysisType, req: express.Request, r
     result,
     premium,
     model: ai ? GEMINI_MODEL : "fallback-local",
+    visualizationPrompt: enhancementDescription,
+    generatedImageUrl: null, // Placeholder for future image generation service
   });
 }
 
@@ -377,6 +495,53 @@ async function startServer() {
   app.post("/api/glowra/analyze/makeup", async (req, res, next) => {
     try {
       await createAnalysisHandler("makeup_analysis", req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/glowra/analyze/face", async (req, res, next) => {
+    try {
+      await createAnalysisHandler("face_body_analysis", req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/glowra/visualize/outfit", async (req, res, next) => {
+    try {
+      const userId = await getUserIdFromRequest(req);
+      const { analysisResult, type, photoData } = req.body as {
+        analysisResult: Record<string, any>;
+        type: AnalysisType;
+        photoData: string;
+      };
+
+      if (!analysisResult || !type || !photoData) {
+        return res.status(400).json({ error: "Missing analysisResult, type, or photoData." });
+      }
+
+      // Generate a rich visualization description
+      let visualDescription = "";
+      if (type === "color_suit") {
+        const colors = (analysisResult.bestColors || []).slice(0, 3).join(", ");
+        const style = analysisResult.season || "Spring Warm";
+        visualDescription = `Fashion visualization: ${style} palette featuring ${colors}. Modern K-beauty inspired styling.`;
+      } else if (type === "hair_analysis") {
+        const style = analysisResult.styles?.[0]?.name || "Modern cut";
+        const color = analysisResult.hairColors?.[0]?.name || "Brunette";
+        visualDescription = `Hair styling: ${style} in ${color}. Professional salon-quality styling.`;
+      } else if (type === "makeup_analysis") {
+        const lookName = analysisResult.lookName || "K-Beauty look";
+        visualDescription = `Makeup visualization: ${lookName}. Professional makeup application with recommended shades.`;
+      }
+
+      res.json({
+        status: "visualization_ready",
+        description: visualDescription,
+        analysisType: type,
+        timestamp: new Date().toISOString(),
+      });
     } catch (error) {
       next(error);
     }

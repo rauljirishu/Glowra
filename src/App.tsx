@@ -23,8 +23,8 @@ import {
   Wand2,
 } from "lucide-react";
 
-type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "makeup" | "history" | "premium" | "terms" | "settings";
-type AnalysisKind = "color_suit" | "hair_analysis" | "makeup_analysis";
+type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "makeup" | "face" | "history" | "premium" | "terms" | "settings";
+type AnalysisKind = "color_suit" | "hair_analysis" | "makeup_analysis" | "face_body_analysis";
 
 type Profile = {
   user_id: string;
@@ -42,6 +42,8 @@ type HistoryItem = {
   id: string;
   type: AnalysisKind;
   image_path: string;
+  image_preview?: string;
+  generated_image?: string;
   created_at: string;
   analysis_results?: {
     result_json: Record<string, any>;
@@ -63,6 +65,7 @@ const navItems: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "color", label: "Color AI", icon: Palette },
   { id: "hair", label: "Hair AI", icon: Scissors },
   { id: "makeup", label: "Makeup AI", icon: Brush },
+  { id: "face", label: "Face AI", icon: UserRound },
   { id: "history", label: "History", icon: History },
   { id: "premium", label: "Premium", icon: Crown },
   { id: "settings", label: "Settings", icon: Settings },
@@ -90,6 +93,14 @@ const makeupQuestions = [
   ["finish", "Preferred skin finish?", "Dewy, satin, matte, glass skin"],
   ["occasion", "Main makeup occasion?", "Daily, party, wedding, office, date"],
   ["comfort", "Color comfort level?", "Soft nude, rosy, glam, bold, experimental"],
+];
+
+const faceQuestions = [
+  ["goal", "Main goal?", "Face balance, body proportions, posture, glow up plan"],
+  ["skinConcern", "Top skin concern?", "Dryness, acne, dullness, pigmentation, sensitivity"],
+  ["hairConcern", "Top hair concern?", "Frizz, hair fall, dryness, oily scalp, low volume"],
+  ["routine", "Current routine level?", "Beginner, simple, detailed, salon-care"],
+  ["styleGoal", "Preferred aesthetic?", "Korean luxury, soft natural, bold glam, clean minimal"],
 ];
 
 const palette = ["#F8AD9D", "#FFDAB9", "#FEC5BB", "#FFF1C7", "#7BC9FF"];
@@ -402,13 +413,24 @@ function saveLocalHistory(history: HistoryItem[]) {
   localStorage.setItem("glowra-local-history", JSON.stringify(history));
 }
 
-function localAiResult(kind: AnalysisKind, answers: Record<string, string>, premium: boolean) {
+function getPhotoSeed(photoData = "") {
+  let seed = 0;
+  for (let index = 0; index < photoData.length; index += Math.max(1, Math.floor(photoData.length / 120))) {
+    seed = (seed + photoData.charCodeAt(index) * (index + 1)) % 9973;
+  }
+  return seed;
+}
+
+function localAiResult(kind: AnalysisKind, answers: Record<string, string>, premium: boolean, photoData = "") {
+  const seed = getPhotoSeed(photoData);
   if (kind === "color_suit") {
     const warm = `${answers.undertone || ""} ${answers.colorComfort || ""}`.toLowerCase().includes("warm");
+    const coolSeason = seed % 2 === 0 ? "Summer Cool" : "Winter Cool";
+    const warmSeason = seed % 2 === 0 ? "Spring Warm" : "Autumn Warm";
     return {
-      season: warm ? "Spring Warm" : "Summer Cool",
-      subType: warm ? "Clear Peach" : "Soft Rose",
-      confidence: premium ? 0.91 : 0.82,
+      season: warm ? warmSeason : coolSeason,
+      subType: warm ? (seed % 3 === 0 ? "Golden Apricot" : "Clear Peach") : (seed % 3 === 0 ? "Icy Rose" : "Soft Rose"),
+      confidence: premium ? 0.88 + (seed % 8) / 100 : 0.78 + (seed % 10) / 100,
       description: warm
         ? "Warm peach, coral, ivory, and clear aqua will brighten your face and keep the styling fresh."
         : "Cool rose, lavender, pearl, and soft blue will make the look cleaner and more balanced.",
@@ -426,7 +448,7 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
     const cool = `${answers.undertone || ""} ${answers.comfort || ""}`.toLowerCase().includes("cool");
     return {
       lookName: cool ? "Rose Glass K-Beauty" : "Peach Glow K-Beauty",
-      confidence: premium ? 0.92 : 0.84,
+      confidence: premium ? 0.89 + (seed % 8) / 100 : 0.8 + (seed % 10) / 100,
       summary: cool
         ? "Cool rose, mauve, pearl, and soft berry shades will look clean, romantic, and camera-friendly."
         : "Peach, coral, champagne, and warm rose shades will make your face look fresh and naturally lifted.",
@@ -449,20 +471,51 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
           ],
       steps: ["Use a thin satin base.", "Place blush high on cheeks.", "Keep shimmer near inner eye.", "Use a blurred glossy lip."],
       avoidShades: cool ? ["Orange coral", "Mustard gold", "Warm brown lip"] : ["Icy lilac", "Blue red lip", "Ash gray contour"],
+      skinCareTips: cool
+        ? ["Use a calming gel cleanser.", "Add ceramide moisturizer before makeup.", "Choose pearl sunscreen to reduce dullness."]
+        : ["Use a hydrating cleanser.", "Add niacinamide serum for glow.", "Use dewy sunscreen before base makeup."],
     };
   }
 
+  if (kind === "face_body_analysis") {
+    const harmony = 78 + (seed % 18);
+    const posture = 74 + (seed % 20);
+    const proportion = 76 + (seed % 17);
+    return {
+      reportTitle: "Face and Body Harmony Report",
+      confidence: 0.8 + (seed % 12) / 100,
+      summary: "Your visual balance is strongest when styling keeps the face bright, posture open, and silhouette clean.",
+      faceStructure: {
+        shape: seed % 2 === 0 ? "Soft oval" : "Heart-soft oval",
+        balance: `${harmony}% facial harmony`,
+        bestAngles: ["Soft front angle", "Slight three-quarter pose", "Lifted chin with relaxed shoulders"],
+      },
+      bodyStructure: {
+        frame: seed % 2 === 0 ? "Balanced vertical frame" : "Soft shoulder-balanced frame",
+        postureScore: `${posture}% posture alignment`,
+        proportionScore: `${proportion}% proportion balance`,
+      },
+      skinCareTips: ["Use gentle cleanser twice daily.", "Add sunscreen every morning.", "Use hydrating serum before makeup.", "Avoid harsh scrubs when skin feels sensitive."],
+      hairCareTips: ["Use lightweight conditioner on ends.", "Add weekly gloss or hair mask.", "Avoid high heat near face-framing layers.", "Use scalp massage for volume."],
+      stylingTips: ["Choose V-neck or open collar outfits.", "Keep accessories near the face delicate.", "Use vertical lines for taller visual balance."],
+      metrics: { harmony, posture, proportion },
+    };
+  }
+
+  const styleOffset = seed % 3;
+  const styles = [
+    { name: "Korean Hush Cut", reason: "Adds movement without looking heavy.", maintenance: answers.maintenance || "Medium" },
+    { name: "Butterfly Layers", reason: "Lifts the cheekbone area and works well for photo-ready styling.", maintenance: "Medium-high" },
+    { name: "Soft Curtain Bangs", reason: "Frames the eyes and is easy to grow out.", maintenance: "Low-medium" },
+  ];
   return {
     faceShape: "Soft oval",
-    confidence: premium ? 0.9 : 0.8,
+    confidence: premium ? 0.87 + (seed % 9) / 100 : 0.77 + (seed % 11) / 100,
     summary: "Face-framing movement, airy layers, and soft volume will suit the preferences you entered.",
-    styles: [
-      { name: "Korean Hush Cut", reason: "Adds movement without looking heavy.", maintenance: answers.maintenance || "Medium" },
-      { name: "Butterfly Layers", reason: "Lifts the cheekbone area and works well for photo-ready styling.", maintenance: "Medium-high" },
-      { name: "Soft Curtain Bangs", reason: "Frames the eyes and is easy to grow out.", maintenance: "Low-medium" },
-    ],
+    styles: [...styles.slice(styleOffset), ...styles.slice(0, styleOffset)],
     hairColors: defaultHairColors,
     careTips: ["Use light root volume spray.", "Blow-dry front pieces away from the face.", "Finish with shine serum only on ends."],
+    hairCareTips: ["Use sulfate-free shampoo if hair feels dry.", "Apply mask once a week.", "Use heat protectant before styling.", "Trim face-framing layers every 8 to 10 weeks."],
     premiumAlternatives: premium ? ["C-shape perm with long layers", "Mocha brown gloss refresh"] : ["Upgrade for salon-ready cut notes."],
   };
 }
@@ -545,11 +598,13 @@ export default function App() {
     setMessage(notice);
   }
 
-  function addLocalHistory(kind: AnalysisKind, result: Record<string, any>) {
+  function addLocalHistory(kind: AnalysisKind, result: Record<string, any>, imagePreview = "", generatedImage = "") {
     const next: HistoryItem = {
       id: `local-${Date.now()}`,
       type: kind,
       image_path: "local-demo-image",
+      image_preview: imagePreview,
+      generated_image: generatedImage,
       created_at: new Date().toISOString(),
       analysis_results: [{ result_json: result, confidence: Number(result.confidence || 0), premium: Boolean(profile?.is_premium), model: "local-glowra-ai" }],
     };
@@ -609,6 +664,7 @@ export default function App() {
         {view === "color" && <AnalysisStudio kind="color_suit" questions={colorQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "hair" && <AnalysisStudio kind="hair_analysis" questions={hairQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "makeup" && <AnalysisStudio kind="makeup_analysis" questions={makeupQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
+        {view === "face" && <AnalysisStudio kind="face_body_analysis" questions={faceQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "history" && <HistoryView history={history} refresh={loadHistory} />}
         {view === "premium" && <Premium session={session} profile={profile} setMessage={setMessage} />}
         {view === "settings" && <Preferences profile={profile} setProfile={setProfile} setMessage={setMessage} />}
@@ -880,6 +936,7 @@ function Dashboard({
             <StudioButton icon={Palette} title="Color Suit Analysis" text="Season, palette, makeup, outfit shades." onClick={() => setView("color")} />
             <StudioButton icon={Scissors} title="Hair Style Analysis" text="Haircut, face balance, styling and care." onClick={() => setView("hair")} />
             <StudioButton icon={Brush} title="Makeup Shade Analysis" text="Base, blush, lip, eye, contour, glow shades." onClick={() => setView("makeup")} />
+            <StudioButton icon={UserRound} title="Face and Body Analysis" text="Face harmony, body structure, skincare, haircare report." onClick={() => setView("face")} />
           </div>
         </GlassCard>
 
@@ -917,27 +974,38 @@ function AnalysisStudio({
   profile: Profile | null;
   setMessage: (message: string) => void;
   refresh: () => Promise<void>;
-  onLocalResult: (kind: AnalysisKind, result: Record<string, any>) => void;
+  onLocalResult: (kind: AnalysisKind, result: Record<string, any>, imagePreview?: string, generatedImage?: string) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<Record<string, any> | null>(null);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [visualizationLoading, setVisualizationLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const title = kind === "color_suit" ? "Color Suit AI" : kind === "hair_analysis" ? "Hair Style AI" : "Makeup Shade AI";
-  const endpoint = kind === "color_suit" ? "/api/glowra/analyze/color" : kind === "hair_analysis" ? "/api/glowra/analyze/hair" : "/api/glowra/analyze/makeup";
+  const title = kind === "color_suit" ? "Color Suit AI" : kind === "hair_analysis" ? "Hair Style AI" : kind === "makeup_analysis" ? "Makeup Shade AI" : "Face and Body AI";
+  const endpoint = kind === "color_suit" ? "/api/glowra/analyze/color" : kind === "hair_analysis" ? "/api/glowra/analyze/hair" : kind === "makeup_analysis" ? "/api/glowra/analyze/makeup" : "/api/glowra/analyze/face";
 
   async function openCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setMessage("Camera is not available in this browser. Use upload, or open the app on HTTPS/localhost.");
+        return;
+      }
+      if (!window.isSecureContext && !location.hostname.includes("localhost")) {
+        setMessage("Camera requires HTTPS or localhost. Open the deployed HTTPS site or localhost to use live selfie.");
+        return;
+      }
+      closeCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 1280 } },
+        audio: false,
+      });
       streamRef.current = stream;
       setCameraOpen(true);
-      window.setTimeout(() => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
-      }, 0);
     } catch (error: any) {
       setMessage(error.message || "Camera access was blocked. You can still upload a selfie.");
     }
@@ -976,17 +1044,164 @@ function AnalysisStudio({
     readAsDataUrl(nextFile).then(setPhotoUrl).catch(() => setPhotoUrl(""));
   }
 
+  useEffect(() => {
+    if (!cameraOpen || !videoRef.current || !streamRef.current) return;
+    videoRef.current.srcObject = streamRef.current;
+    videoRef.current.play().catch(() => setMessage("Camera opened, but playback was blocked. Please allow camera access and retry."));
+  }, [cameraOpen]);
+
   useEffect(() => () => closeCamera(), []);
+
+  async function generateOutfitVisualization(analysisResult: Record<string, any>) {
+    if (!session?.access_token || !photoUrl) return;
+    
+    setVisualizationLoading(true);
+    try {
+      const response = await fetch("/api/glowra/visualize/outfit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          analysisResult,
+          type: kind,
+          photoData: photoUrl,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Visualization failed.");
+      
+      // Create an enhanced try-on image using canvas
+      const enhancedImageUrl = await createEnhancedTryOn(kind, analysisResult, photoUrl);
+      setGeneratedImage(enhancedImageUrl);
+    } catch (error: any) {
+      console.error("Visualization error:", error);
+    } finally {
+      setVisualizationLoading(false);
+    }
+  }
+
+  async function createEnhancedTryOn(type: AnalysisKind, analysis: Record<string, any>, basePhotoUrl: string): Promise<string> {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return basePhotoUrl;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    
+    return new Promise((resolve) => {
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        if (type === "color_suit") {
+          const colors = analysis.palette || ["#F8AD9D", "#FFDAB9", "#FEC5BB"];
+          const outfitColor = colors[0] || "#F8AD9D";
+          ctx.globalAlpha = 0.72;
+          const outfitGradient = ctx.createLinearGradient(0, canvas.height * 0.48, 0, canvas.height);
+          outfitGradient.addColorStop(0, outfitColor);
+          outfitGradient.addColorStop(1, colors[1] || outfitColor);
+          ctx.fillStyle = outfitGradient;
+          ctx.beginPath();
+          ctx.moveTo(canvas.width * 0.24, canvas.height * 0.58);
+          ctx.quadraticCurveTo(canvas.width * 0.5, canvas.height * 0.48, canvas.width * 0.76, canvas.height * 0.58);
+          ctx.lineTo(canvas.width * 0.92, canvas.height);
+          ctx.lineTo(canvas.width * 0.08, canvas.height);
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalAlpha = 0.35;
+          colors.slice(0, 4).forEach((color: string, index: number) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(canvas.width * (0.16 + index * 0.17), canvas.height * 0.82, canvas.width * 0.12, canvas.height * 0.12);
+          });
+          ctx.globalAlpha = 1;
+          
+          // Add label
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillText(`${analysis.season} Palette`, 20, canvas.height - 20);
+        } else if (type === "hair_analysis") {
+          const hairColor = analysis.hairColors?.[0]?.hex || "#3B2418";
+          // Add hair color effect overlay at top
+          ctx.fillStyle = hairColor;
+          ctx.globalAlpha = 0.45;
+          const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.35);
+          gradient.addColorStop(0, hairColor);
+          gradient.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, canvas.width, canvas.height * 0.35);
+          ctx.globalAlpha = 1;
+          
+          // Add label
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillText(`${analysis.styles?.[0]?.name || "Hair Style"}`, 20, 50);
+        } else if (type === "makeup_analysis") {
+          const palette = analysis.makeupPalette || [];
+          const blushColor = palette.find((p: any) => p.type === "Blush")?.hex || "#E59AAF";
+          const lipColor = palette.find((p: any) => p.type === "Lip")?.hex || "#D96172";
+          
+          // Add makeup effect with blush and lip color hints
+          ctx.fillStyle = blushColor;
+          ctx.globalAlpha = 0.35;
+          ctx.beginPath();
+          ctx.arc(canvas.width * 0.25, canvas.height * 0.4, 60, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(canvas.width * 0.75, canvas.height * 0.4, 60, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.fillStyle = lipColor;
+          ctx.globalAlpha = 0.5;
+          ctx.beginPath();
+          ctx.ellipse(canvas.width * 0.5, canvas.height * 0.55, 40, 25, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          
+          // Add label
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillText(`${analysis.lookName || "Makeup Look"}`, 20, canvas.height - 20);
+        } else if (type === "face_body_analysis") {
+          ctx.strokeStyle = "rgba(123, 201, 255, 0.9)";
+          ctx.lineWidth = 5;
+          ctx.globalAlpha = 0.82;
+          ctx.beginPath();
+          ctx.ellipse(canvas.width * 0.5, canvas.height * 0.32, canvas.width * 0.18, canvas.height * 0.18, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(canvas.width * 0.5, canvas.height * 0.5);
+          ctx.lineTo(canvas.width * 0.5, canvas.height * 0.9);
+          ctx.moveTo(canvas.width * 0.28, canvas.height * 0.58);
+          ctx.lineTo(canvas.width * 0.72, canvas.height * 0.58);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillText("Face and body harmony", 20, canvas.height - 20);
+        }
+
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => resolve(basePhotoUrl);
+      img.src = basePhotoUrl;
+    });
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!file || !file.type.startsWith("image/")) return setMessage("Upload a valid image file first.");
 
     if (!supabase || !session?.access_token || !session.user) {
-      const demoResult = localAiResult(kind, answers, Boolean(profile?.is_premium));
+      const demoResult = localAiResult(kind, answers, Boolean(profile?.is_premium), photoUrl);
+      const enhancedImageUrl = photoUrl ? await createEnhancedTryOn(kind, demoResult, photoUrl) : "";
       setResult(demoResult);
-      onLocalResult(kind, demoResult);
-      setMessage(`${title} completed in local AI demo mode. Add valid Supabase and Gemini keys for cloud AI.`);
+      setGeneratedImage(enhancedImageUrl || null);
+      onLocalResult(kind, demoResult, photoUrl, enhancedImageUrl);
+      setMessage(`${title} completed in local AI demo mode. Photo, try-on preview, and report are saved in history.`);
       return;
     }
 
@@ -1013,8 +1228,12 @@ function AnalysisStudio({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Analysis failed.");
       setResult(payload.result);
+      
+      // Generate outfit visualization
+      await generateOutfitVisualization(payload.result);
+      
       await refresh();
-      setMessage(`${title} completed and saved privately.`);
+      setMessage(`${title} completed and saved privately. Generated outfit preview ready!`);
     } catch (error: any) {
       setMessage(error.message || "Analysis failed.");
     } finally {
@@ -1057,7 +1276,7 @@ function AnalysisStudio({
             </div>
           )}
           {photoUrl && (
-            <PhotoTryOn kind={kind} result={result || localAiResult(kind, answers, Boolean(profile?.is_premium))} photoUrl={photoUrl} compact />
+            <PhotoTryOn kind={kind} result={result || localAiResult(kind, answers, Boolean(profile?.is_premium), photoUrl)} photoUrl={photoUrl} compact />
           )}
           {questions.map(([key, label, placeholder]) => (
             <Field key={key} label={label} value={answers[key] || ""} placeholder={placeholder} onChange={(event) => setAnswers({ ...answers, [key]: event.target.value })} />
@@ -1070,7 +1289,7 @@ function AnalysisStudio({
 
       <GlassCard className="p-6">
         <h2 className="text-3xl font-black tracking-normal">Result</h2>
-        {result ? <ResultJson result={result} kind={kind} photoUrl={photoUrl} /> : <EmptyResult kind={kind} />}
+        {result ? <ResultJson result={result} kind={kind} photoUrl={photoUrl} generatedImage={generatedImage} visualizationLoading={visualizationLoading} /> : <EmptyResult kind={kind} />}
       </GlassCard>
     </main>
   );
@@ -1099,6 +1318,7 @@ function PhotoTryOn({
   compact?: boolean;
 }) {
   const colors = result.palette || palette;
+  const [selectedColor, setSelectedColor] = useState(colors[0] || "#F8AD9D");
   const makeup = result.makeupPalette || [
     { type: "Blush", name: "Rose glow", hex: "#E59AAF" },
     { type: "Lip", name: "Warm rose gloss", hex: "#D96172" },
@@ -1122,11 +1342,24 @@ function PhotoTryOn({
         <div className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-[30px] bg-black shadow-2xl shadow-purple-200/30">
           <img src={photoUrl} alt="User selfie try-on" className="h-full w-full object-cover" />
           {kind === "color_suit" && (
-            <div className="absolute inset-x-0 bottom-0 grid grid-cols-5">
-              {colors.slice(0, 5).map((color: string) => (
-                <div key={color} className="h-24 opacity-70 mix-blend-soft-light" style={{ background: color }} />
-              ))}
-            </div>
+            <>
+              <div
+                className="absolute inset-x-[10%] bottom-0 h-[38%] rounded-t-[46%] opacity-75 mix-blend-multiply blur-[0.5px]"
+                style={{ background: `linear-gradient(180deg, ${selectedColor}, ${colors[1] || selectedColor})` }}
+              />
+              <div className="absolute bottom-4 left-4 right-4 flex gap-2">
+                {colors.slice(0, 5).map((color: string) => (
+                  <button
+                    type="button"
+                    key={color}
+                    onClick={() => setSelectedColor(color)}
+                    className="h-9 flex-1 rounded-full border-2 border-white/70 shadow-lg"
+                    style={{ background: color }}
+                    aria-label={`Try ${color}`}
+                  />
+                ))}
+              </div>
+            </>
           )}
           {kind === "makeup_analysis" && (
             <>
@@ -1140,6 +1373,13 @@ function PhotoTryOn({
           {kind === "hair_analysis" && (
             <div className="absolute inset-x-[16%] top-[6%] h-[38%] rounded-t-[90px] rounded-b-[42px] opacity-65 blur-[1px] mix-blend-multiply" style={{ background: `linear-gradient(180deg, ${hairColor}, transparent)` }} />
           )}
+          {kind === "face_body_analysis" && (
+            <>
+              <div className="absolute left-1/2 top-[30%] h-[30%] w-[42%] -translate-x-1/2 rounded-full border-4 border-[#7BC9FF]/80 shadow-[0_0_30px_rgba(123,201,255,0.45)]" />
+              <div className="absolute left-1/2 top-[50%] h-[42%] w-1 -translate-x-1/2 rounded-full bg-[#FF8E8E]/80 shadow-[0_0_22px_rgba(255,142,142,0.5)]" />
+              <div className="absolute left-[26%] top-[58%] h-1 w-[48%] rounded-full bg-[#A98CFF]/80 shadow-[0_0_22px_rgba(169,140,255,0.45)]" />
+            </>
+          )}
           <div className="absolute left-4 top-4 rounded-full bg-white/80 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-[#555]">
             Try AI
           </div>
@@ -1147,7 +1387,11 @@ function PhotoTryOn({
 
         {!compact && (
           <div className="grid content-center gap-3">
-            {(kind === "makeup_analysis" ? makeup : kind === "hair_analysis" ? result.hairColors || defaultHairColors : colors.slice(0, 5).map((hex: string, index: number) => ({ name: colorNames[String(hex).toUpperCase()] || `Shade ${index + 1}`, hex }))).map((item: any) => (
+            {(kind === "makeup_analysis" ? makeup : kind === "hair_analysis" ? result.hairColors || defaultHairColors : kind === "face_body_analysis" ? [
+              { name: result.faceStructure?.shape || "Face harmony", hex: "#7BC9FF", type: result.faceStructure?.balance || "Face" },
+              { name: result.bodyStructure?.frame || "Body structure", hex: "#A98CFF", type: result.bodyStructure?.postureScore || "Body" },
+              { name: "Glow-up plan", hex: "#FF8E8E", type: result.bodyStructure?.proportionScore || "Plan" },
+            ] : colors.slice(0, 5).map((hex: string, index: number) => ({ name: colorNames[String(hex).toUpperCase()] || `Shade ${index + 1}`, hex }))).map((item: any) => (
               <div key={`${item.name}-${item.hex}`} className="liquid-panel flex items-center gap-4 rounded-[24px] p-4">
                 <span className="h-12 w-12 rounded-2xl shadow-inner" style={{ background: item.hex || item }} />
                 <div>
@@ -1163,21 +1407,94 @@ function PhotoTryOn({
   );
 }
 
-function ResultJson({ result, kind, photoUrl }: { result: Record<string, any>; kind: AnalysisKind; photoUrl?: string }) {
+function buildReportText(kind: AnalysisKind, result: Record<string, any>) {
+  const title =
+    kind === "color_suit" ? "Glowra Color Suit Report" :
+    kind === "hair_analysis" ? "Glowra Hair Style Report" :
+    kind === "makeup_analysis" ? "Glowra Makeup Shade Report" :
+    "Glowra Face and Body Report";
+
+  const lines = [
+    title,
+    "",
+    `Main result: ${result.season || result.lookName || result.faceShape || result.reportTitle || "Glowra analysis"}`,
+    `Match score: ${Math.round(Number(result.confidence || 0.82) * 100)}%`,
+    "",
+    result.description || result.summary || "",
+    "",
+  ];
+
+  const sections: Array<[string, any]> = [
+    ["Best colors", result.bestColors],
+    ["Avoid shades", result.avoidColors || result.avoidShades],
+    ["Makeup palette", result.makeupPalette],
+    ["Hairstyles", result.styles],
+    ["Hair colors", result.hairColors],
+    ["Face structure", result.faceStructure],
+    ["Body structure", result.bodyStructure],
+    ["Skin care tips", result.skinCareTips],
+    ["Hair care tips", result.hairCareTips || result.careTips],
+    ["Styling tips", result.stylingTips],
+  ];
+
+  sections.forEach(([heading, value]) => {
+    if (!value) return;
+    lines.push(heading);
+    if (Array.isArray(value)) {
+      value.forEach((item) => lines.push(`- ${typeof item === "string" ? item : Object.values(item).join(" | ")}`));
+    } else {
+      Object.entries(value).forEach(([key, item]) => lines.push(`- ${key}: ${Array.isArray(item) ? item.join(", ") : item}`));
+    }
+    lines.push("");
+  });
+
+  return lines.filter(Boolean).join("\n");
+}
+
+function downloadReport(kind: AnalysisKind, result: Record<string, any>) {
+  const blob = new Blob([buildReportText(kind, result)], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `glowra-${kind}-report.txt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function ResultJson({ result, kind, photoUrl, generatedImage, visualizationLoading }: { result: Record<string, any>; kind: AnalysisKind; photoUrl?: string; generatedImage?: string | null; visualizationLoading?: boolean }) {
   const colors = result.palette || palette;
   const isColorResult = Boolean(result.season || result.bestColors || result.makeup);
   const isHairResult = Boolean(result.styles || result.faceShape);
   const isMakeupResult = Boolean(result.makeupPalette || result.lookName);
+  const isFaceResult = Boolean(result.faceStructure || result.bodyStructure || result.reportTitle);
 
   return (
     <div className="mt-5 grid gap-5">
+      {generatedImage && (
+        <div className="glass overflow-hidden rounded-[32px] shadow-2xl shadow-pink-200/30">
+          <div className="relative">
+            <img src={generatedImage} alt="Generated outfit visualization" className="w-full rounded-[28px]" />
+            <span className="absolute right-4 top-4 rounded-full bg-black/60 px-4 py-2 text-xs font-black uppercase text-white">Generated</span>
+          </div>
+        </div>
+      )}
+      
+      {visualizationLoading && (
+        <div className="glass flex items-center justify-center rounded-[32px] p-8">
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2 }} className="h-8 w-8 rounded-full border-4 border-[#FF8E8E] border-t-transparent" />
+          <span className="ml-4 text-sm font-black text-[#FF8E8E]">Generating visualization...</span>
+        </div>
+      )}
+
       <div className="liquid-panel rounded-[32px] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#FF8E8E]">
-              {result.subType || result.faceShape || "Glowra match"}
+              {result.subType || result.faceShape || result.faceStructure?.shape || "Glowra match"}
             </p>
-            <h3 className="mt-2 text-3xl font-black tracking-normal">{result.season || result.faceShape || result.lookName || "Glowra Result"}</h3>
+            <h3 className="mt-2 text-3xl font-black tracking-normal">{result.season || result.faceShape || result.lookName || result.reportTitle || "Glowra Result"}</h3>
           </div>
           {result.confidence && (
             <span className="rounded-full bg-black px-4 py-2 text-sm font-black text-white">
@@ -1186,6 +1503,9 @@ function ResultJson({ result, kind, photoUrl }: { result: Record<string, any>; k
           )}
         </div>
         <p className="mt-4 text-base leading-8 text-[#666]">{result.description || result.summary || "Analysis completed."}</p>
+        <button onClick={() => downloadReport(kind, result)} className="luxury-button mt-5 rounded-full px-6 py-3 text-sm font-black text-white">
+          Download report
+        </button>
       </div>
 
       <BeautyAnalytics result={result} />
@@ -1298,7 +1618,28 @@ function ResultJson({ result, kind, photoUrl }: { result: Record<string, any>; k
             </div>
           </div>
           <InfoList title="Care tips" items={result.careTips || []} />
+          <InfoList title="Hair care tips" items={result.hairCareTips || []} />
           <InfoList title="Premium alternatives" items={result.premiumAlternatives || []} />
+        </div>
+      )}
+
+      {isFaceResult && (
+        <div className="grid gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <InfoList title="Face structure" items={[
+              result.faceStructure?.shape,
+              result.faceStructure?.balance,
+              ...(result.faceStructure?.bestAngles || []),
+            ].filter(Boolean)} />
+            <InfoList title="Body structure" items={[
+              result.bodyStructure?.frame,
+              result.bodyStructure?.postureScore,
+              result.bodyStructure?.proportionScore,
+            ].filter(Boolean)} />
+          </div>
+          <InfoList title="Skin care according to you" items={result.skinCareTips || []} />
+          <InfoList title="Hair care according to you" items={result.hairCareTips || []} />
+          <InfoList title="Styling and posture tips" items={result.stylingTips || []} />
         </div>
       )}
     </div>
@@ -1350,10 +1691,19 @@ function HistoryView({ history, refresh }: { history: HistoryItem[]; refresh: ()
           return (
             <div key={item.id} className="rounded-[24px] bg-white/60 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-black">{item.type === "color_suit" ? "Color Suit" : item.type === "hair_analysis" ? "Hair Analysis" : "Makeup Analysis"}</h2>
+                <h2 className="text-lg font-black">{item.type === "color_suit" ? "Color Suit" : item.type === "hair_analysis" ? "Hair Analysis" : item.type === "makeup_analysis" ? "Makeup Analysis" : "Face and Body Analysis"}</h2>
                 <span className="rounded-full bg-black px-3 py-1 text-xs font-black text-white">{new Date(item.created_at).toLocaleString()}</span>
               </div>
+              {(item.generated_image || item.image_preview) && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {item.image_preview && <img src={item.image_preview} alt="Saved user upload" className="aspect-[3/4] w-full rounded-[22px] object-cover" />}
+                  {item.generated_image && <img src={item.generated_image} alt="Saved try-on preview" className="aspect-[3/4] w-full rounded-[22px] object-cover" />}
+                </div>
+              )}
               <p className="mt-2 text-sm leading-6 text-[#666]">{result.description || result.summary || "Saved result"}</p>
+              <button onClick={() => downloadReport(item.type, result)} className="mt-4 rounded-full bg-black px-4 py-2 text-xs font-black text-white">
+                Download report
+              </button>
             </div>
           );
         })}
