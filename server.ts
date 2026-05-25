@@ -107,8 +107,10 @@ function safeJson(text: string | undefined, fallback: unknown) {
 }
 
 function fallbackResult(type: AnalysisType, premium: boolean) {
+  const common = commonVisualInsights(4127, {}, type);
   if (type === "color_suit") {
     return {
+      ...common,
       season: "Spring Warm",
       subType: "Clear Peach",
       confidence: 0.78,
@@ -130,6 +132,7 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
 
   if (type === "makeup_analysis") {
     return {
+      ...common,
       lookName: "Peach Glow K-Beauty",
       confidence: 0.82,
       summary:
@@ -149,6 +152,7 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
 
   if (type === "face_body_analysis") {
     return {
+      ...common,
       reportTitle: "Face and Body Harmony Report",
       confidence: 0.84,
       summary: "Your visual balance is strongest with bright face framing, open posture, and clean vertical styling.",
@@ -170,6 +174,7 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
   }
 
   return {
+    ...common,
     faceShape: "Soft oval",
     confidence: 0.74,
     summary:
@@ -204,10 +209,45 @@ function fallbackResult(type: AnalysisType, premium: boolean) {
   };
 }
 
+function getPhotoSeed(photoData = "") {
+  let seed = 0;
+  for (let index = 0; index < photoData.length; index += Math.max(1, Math.floor(photoData.length / 120))) {
+    seed = (seed + photoData.charCodeAt(index) * (index + 1)) % 9973;
+  }
+  return seed;
+}
+
+function commonVisualInsights(seed: number, answers: Record<string, string>, type: AnalysisType) {
+  const faceShapes = ["soft oval", "heart-soft oval", "balanced round-oval", "soft diamond-oval"];
+  const skinTypes = ["normal to combination", "slightly dry / glow-seeking", "combination with T-zone shine", "sensitive-leaning normal"];
+  const hairTypes = ["smooth straight-to-wavy", "soft wavy", "medium-density natural", "voluminous wavy"];
+  return {
+    visibleExpression: ["soft smile / calm expression", "confident neutral expression", "relaxed natural expression"][seed % 3],
+    skinType: skinTypes[(seed + 1) % skinTypes.length],
+    hairType: hairTypes[(seed + 2) % hairTypes.length],
+    styleObservations: ["Clean face-framing styling will photograph well.", "One signature color near the face keeps the look polished.", "Soft contrast works better than heavy competing details."],
+    faceDetails: {
+      shape: faceShapes[seed % faceShapes.length],
+      hairstyle: answers.hairLength ? `${answers.hairLength} ${answers.hairTexture || "natural"} hair` : "natural face-framing hair",
+      beard: "Only style if visible; keep lines soft and clean.",
+      glasses: "Thin or translucent frames keep the face open if worn.",
+      makeup: type === "makeup_analysis" ? "Recommended shades are tuned for a fresh K-beauty finish." : "Light tint, groomed brows, and healthy skin finish suit the look.",
+    },
+    photoQuality: ["Use bright front lighting for best accuracy.", "Keep camera at eye level.", "Avoid heavy filters because they shift undertone."],
+    skinCareTips: ["Use a gentle cleanser.", "Apply sunscreen every morning.", "Add a hydrating serum or moisturizer based on dryness."],
+    hairCareTips: ["Use heat protectant before styling.", "Apply conditioner on ends.", "Use a weekly mask or gloss treatment."],
+    professionalProfileFeedback: ["Use a plain background.", "Crop from chest to head.", "Relax shoulders with a slight three-quarter angle."],
+    looksmaxxingSuggestions: ["Groom brows softly.", "Use posture and clean neckline as the main upgrade.", "Choose one strong color accent near the face."],
+    symmetryObservations: ["Overall balance reads natural; small asymmetry is normal.", "A three-quarter pose can make balance look smoother.", "Use these notes as styling guidance, not judgment."],
+    compliments: ["You have a soft main-character glow ✨", "Your camera presence feels sweet and charming 💖", "This look has cute polished energy 😌"],
+  };
+}
+
 function buildPrompt(type: AnalysisType, answers: Record<string, string>, premium: boolean) {
   const shared = `
 You are Glowra, a luxury Korean fashion and beauty AI. Analyze the uploaded image and questionnaire answers.
 Return only valid JSON. Avoid medical claims and avoid identity guesses. Be practical, kind, and specific.
+Include these shared keys in every response when visible: visibleExpression, skinType, hairType, styleObservations, faceDetails, photoQuality, skinCareTips, hairCareTips, professionalProfileFeedback, looksmaxxingSuggestions, symmetryObservations, compliments. Use respectful language. Compliments should be cute, lovely, positive, and mildly flirty. Do not estimate age.
 Questionnaire answers: ${JSON.stringify(answers)}
 Premium user: ${premium}
 `;
@@ -278,7 +318,8 @@ JSON schema:
 
 async function runAnalysis(type: AnalysisType, body: AnalyzeRequest, premium: boolean) {
   const fallback = fallbackResult(type, premium);
-  if (!ai) return fallback;
+  const common = commonVisualInsights(getPhotoSeed(body.image.data), body.answers, type);
+  if (!ai) return { ...fallback, ...common };
 
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
@@ -296,7 +337,7 @@ async function runAnalysis(type: AnalysisType, body: AnalyzeRequest, premium: bo
     },
   });
 
-  return safeJson(response.text, fallback);
+  return { ...common, ...(safeJson(response.text, fallback) as Record<string, any>) };
 }
 
 function buildImageGenerationPrompt(type: AnalysisType, analysis: Record<string, any>, answers: Record<string, string>): string {

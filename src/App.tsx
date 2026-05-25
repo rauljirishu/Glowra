@@ -11,9 +11,11 @@ import {
   Gem,
   Heart,
   LogOut,
+  MessageCircle,
   Palette,
   Brush,
   Camera,
+  Send,
   Scissors,
   Settings,
   ShieldCheck,
@@ -23,7 +25,7 @@ import {
   Wand2,
 } from "lucide-react";
 
-type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "makeup" | "face" | "history" | "premium" | "terms" | "settings";
+type View = "manual" | "signup" | "login" | "dashboard" | "color" | "hair" | "makeup" | "face" | "chat" | "history" | "premium" | "terms" | "settings";
 type AnalysisKind = "color_suit" | "hair_analysis" | "makeup_analysis" | "face_body_analysis";
 
 type Profile = {
@@ -66,6 +68,7 @@ const navItems: { id: View; label: string; icon: React.ElementType }[] = [
   { id: "hair", label: "Hair AI", icon: Scissors },
   { id: "makeup", label: "Makeup AI", icon: Brush },
   { id: "face", label: "Face AI", icon: UserRound },
+  { id: "chat", label: "Glow Chat", icon: MessageCircle },
   { id: "history", label: "History", icon: History },
   { id: "premium", label: "Premium", icon: Crown },
   { id: "settings", label: "Settings", icon: Settings },
@@ -421,13 +424,79 @@ function getPhotoSeed(photoData = "") {
   return seed;
 }
 
+function commonVisualInsights(seed: number, answers: Record<string, string>, kind: AnalysisKind) {
+  const expressions = ["soft smile / calm expression", "confident neutral expression", "gentle camera-ready expression", "relaxed natural expression"];
+  const faceShapes = ["soft oval", "heart-soft oval", "balanced round-oval", "soft diamond-oval"];
+  const hairTypes = ["smooth straight-to-wavy", "soft wavy", "medium-density natural", "voluminous wavy"];
+  const skinTypes = ["normal to combination", "slightly dry / glow-seeking", "combination with T-zone shine", "sensitive-leaning normal"];
+  const styleWords = answers.preferredStyle || answers.styleGoal || answers.occasion || "clean modern styling";
+  const faceShape = faceShapes[seed % faceShapes.length];
+  const skinType = skinTypes[(seed + 1) % skinTypes.length];
+  const hairType = hairTypes[(seed + 2) % hairTypes.length];
+
+  return {
+    visibleExpression: expressions[(seed + 1) % expressions.length],
+    skinType,
+    hairType,
+    styleObservations: [
+      `${styleWords} suits your current visual mood.`,
+      "Cleaner face-framing details will make the photo look more polished.",
+      kind === "color_suit" ? "Keep your strongest color close to the neckline for the best glow." : "Soft contrast around the face will keep everything balanced.",
+    ],
+    faceDetails: {
+      shape: faceShape,
+      hairstyle: answers.hairLength ? `${answers.hairLength} length with ${answers.hairTexture || "natural"} texture` : `${hairType} hair impression`,
+      beard: "Only style if visible; keep lines soft and clean.",
+      glasses: "Thin or translucent frames keep the face open if you wear glasses.",
+      makeup: kind === "makeup_analysis" ? "Recommended shades are tuned for a fresh K-beauty finish." : "A light tint, groomed brows, and healthy skin finish will work well.",
+    },
+    photoQuality: [
+      seed % 2 === 0 ? "Lighting looks usable; front window light would make it even sharper." : "Use brighter front lighting for more accurate color and skin analysis.",
+      "Keep the camera at eye level with the face fully visible.",
+      "Avoid heavy filters because they change undertone and skin texture.",
+    ],
+    skinCareTips: [
+      skinType.includes("dry") ? "Use a hydrating cleanser and ceramide moisturizer." : "Use a gentle cleanser and lightweight moisturizer.",
+      "Apply broad-spectrum sunscreen every morning.",
+      skinType.includes("sensitive") ? "Patch-test actives and avoid harsh scrubs." : "Add niacinamide or vitamin C slowly for glow.",
+    ],
+    hairCareTips: [
+      hairType.includes("wavy") ? "Use a leave-in cream on damp hair to control frizz." : "Use lightweight conditioner only through mid-lengths and ends.",
+      "Use heat protectant before styling.",
+      "Do a weekly mask or gloss treatment for shine.",
+    ],
+    professionalProfileFeedback: [
+      "Use a plain background and crop from chest to head.",
+      "Turn slightly three-quarter to camera and relax the shoulders.",
+      "Keep hair away from both eyes for a sharper profile image.",
+    ],
+    looksmaxxingSuggestions: [
+      "Groom brows softly; do not over-sharpen them.",
+      "Add one signature color near the face instead of many competing colors.",
+      "Use posture, clean neckline, and healthy hair shine as the main upgrade trio.",
+    ],
+    symmetryObservations: [
+      "Your face reads balanced overall; tiny asymmetries are normal and human.",
+      "A slight three-quarter angle can make facial balance look even smoother.",
+      "Keep suggestions as styling guidance, not a judgment of worth.",
+    ],
+    compliments: [
+      "You have such a soft main-character glow, honestly very cute ✨",
+      "Your face has a sweet camera presence; Glowra is blushing a little 💖",
+      "That natural charm is doing the heavy lifting, bestie 😌",
+    ],
+  };
+}
+
 function localAiResult(kind: AnalysisKind, answers: Record<string, string>, premium: boolean, photoData = "") {
   const seed = getPhotoSeed(photoData);
+  const common = commonVisualInsights(seed, answers, kind);
   if (kind === "color_suit") {
     const warm = `${answers.undertone || ""} ${answers.colorComfort || ""}`.toLowerCase().includes("warm");
     const coolSeason = seed % 2 === 0 ? "Summer Cool" : "Winter Cool";
     const warmSeason = seed % 2 === 0 ? "Spring Warm" : "Autumn Warm";
     return {
+      ...common,
       season: warm ? warmSeason : coolSeason,
       subType: warm ? (seed % 3 === 0 ? "Golden Apricot" : "Clear Peach") : (seed % 3 === 0 ? "Icy Rose" : "Soft Rose"),
       confidence: premium ? 0.88 + (seed % 8) / 100 : 0.78 + (seed % 10) / 100,
@@ -447,6 +516,7 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
   if (kind === "makeup_analysis") {
     const cool = `${answers.undertone || ""} ${answers.comfort || ""}`.toLowerCase().includes("cool");
     return {
+      ...common,
       lookName: cool ? "Rose Glass K-Beauty" : "Peach Glow K-Beauty",
       confidence: premium ? 0.89 + (seed % 8) / 100 : 0.8 + (seed % 10) / 100,
       summary: cool
@@ -472,8 +542,8 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
       steps: ["Use a thin satin base.", "Place blush high on cheeks.", "Keep shimmer near inner eye.", "Use a blurred glossy lip."],
       avoidShades: cool ? ["Orange coral", "Mustard gold", "Warm brown lip"] : ["Icy lilac", "Blue red lip", "Ash gray contour"],
       skinCareTips: cool
-        ? ["Use a calming gel cleanser.", "Add ceramide moisturizer before makeup.", "Choose pearl sunscreen to reduce dullness."]
-        : ["Use a hydrating cleanser.", "Add niacinamide serum for glow.", "Use dewy sunscreen before base makeup."],
+        ? ["Use a calming gel cleanser.", "Add ceramide moisturizer before makeup.", "Choose pearl sunscreen to reduce dullness.", ...common.skinCareTips.slice(1, 2)]
+        : ["Use a hydrating cleanser.", "Add niacinamide serum for glow.", "Use dewy sunscreen before base makeup.", ...common.skinCareTips.slice(1, 2)],
     };
   }
 
@@ -482,11 +552,12 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
     const posture = 74 + (seed % 20);
     const proportion = 76 + (seed % 17);
     return {
+      ...common,
       reportTitle: "Face and Body Harmony Report",
       confidence: 0.8 + (seed % 12) / 100,
       summary: "Your visual balance is strongest when styling keeps the face bright, posture open, and silhouette clean.",
       faceStructure: {
-        shape: seed % 2 === 0 ? "Soft oval" : "Heart-soft oval",
+        shape: common.faceDetails.shape,
         balance: `${harmony}% facial harmony`,
         bestAngles: ["Soft front angle", "Slight three-quarter pose", "Lifted chin with relaxed shoulders"],
       },
@@ -495,8 +566,8 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
         postureScore: `${posture}% posture alignment`,
         proportionScore: `${proportion}% proportion balance`,
       },
-      skinCareTips: ["Use gentle cleanser twice daily.", "Add sunscreen every morning.", "Use hydrating serum before makeup.", "Avoid harsh scrubs when skin feels sensitive."],
-      hairCareTips: ["Use lightweight conditioner on ends.", "Add weekly gloss or hair mask.", "Avoid high heat near face-framing layers.", "Use scalp massage for volume."],
+      skinCareTips: common.skinCareTips,
+      hairCareTips: common.hairCareTips,
       stylingTips: ["Choose V-neck or open collar outfits.", "Keep accessories near the face delicate.", "Use vertical lines for taller visual balance."],
       metrics: { harmony, posture, proportion },
     };
@@ -509,13 +580,14 @@ function localAiResult(kind: AnalysisKind, answers: Record<string, string>, prem
     { name: "Soft Curtain Bangs", reason: "Frames the eyes and is easy to grow out.", maintenance: "Low-medium" },
   ];
   return {
-    faceShape: "Soft oval",
+    ...common,
+    faceShape: common.faceDetails.shape,
     confidence: premium ? 0.87 + (seed % 9) / 100 : 0.77 + (seed % 11) / 100,
     summary: "Face-framing movement, airy layers, and soft volume will suit the preferences you entered.",
     styles: [...styles.slice(styleOffset), ...styles.slice(0, styleOffset)],
     hairColors: defaultHairColors,
     careTips: ["Use light root volume spray.", "Blow-dry front pieces away from the face.", "Finish with shine serum only on ends."],
-    hairCareTips: ["Use sulfate-free shampoo if hair feels dry.", "Apply mask once a week.", "Use heat protectant before styling.", "Trim face-framing layers every 8 to 10 weeks."],
+    hairCareTips: common.hairCareTips,
     premiumAlternatives: premium ? ["C-shape perm with long layers", "Mocha brown gloss refresh"] : ["Upgrade for salon-ready cut notes."],
   };
 }
@@ -665,6 +737,7 @@ export default function App() {
         {view === "hair" && <AnalysisStudio kind="hair_analysis" questions={hairQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "makeup" && <AnalysisStudio kind="makeup_analysis" questions={makeupQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
         {view === "face" && <AnalysisStudio kind="face_body_analysis" questions={faceQuestions} session={session} profile={profile} setMessage={setMessage} refresh={loadHistory} onLocalResult={addLocalHistory} />}
+        {view === "chat" && <GlowChat history={history} profile={profile} />}
         {view === "history" && <HistoryView history={history} refresh={loadHistory} />}
         {view === "premium" && <Premium session={session} profile={profile} setMessage={setMessage} />}
         {view === "settings" && <Preferences profile={profile} setProfile={setProfile} setMessage={setMessage} />}
@@ -992,11 +1065,12 @@ function AnalysisStudio({
   async function openCamera() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setMessage("Camera is not available in this browser. Use upload, or open the app on HTTPS/localhost.");
+        setMessage("Live camera is blocked in this browser. Use the image picker camera option or open Glowra on HTTPS, localhost, or 127.0.0.1.");
         return;
       }
-      if (!window.isSecureContext && !location.hostname.includes("localhost")) {
-        setMessage("Camera requires HTTPS or localhost. Open the deployed HTTPS site or localhost to use live selfie.");
+      const cameraSafeHost = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+      if (!window.isSecureContext && !cameraSafeHost) {
+        setMessage("Camera needs a secure page. Open http://localhost:10000 on this machine, use HTTPS, or use Upload photo to take a camera image.");
         return;
       }
       closeCamera();
@@ -1007,7 +1081,8 @@ function AnalysisStudio({
       streamRef.current = stream;
       setCameraOpen(true);
     } catch (error: any) {
-      setMessage(error.message || "Camera access was blocked. You can still upload a selfie.");
+      const reason = error?.name === "NotAllowedError" ? "Camera permission was denied." : error?.name === "NotFoundError" ? "No camera device was found." : error?.message || "Camera access failed.";
+      setMessage(`${reason} You can still tap Upload photo and choose Camera to continue.`);
     }
   }
 
@@ -1037,6 +1112,8 @@ function AnalysisStudio({
 
   function onFileChange(nextFile: File | null) {
     setFile(nextFile);
+    setResult(null);
+    setGeneratedImage(null);
     if (!nextFile) {
       setPhotoUrl("");
       return;
@@ -1256,7 +1333,7 @@ function AnalysisStudio({
             </span>
             <span className="text-sm font-black">{file ? file.name : "Single click or drag to select an image"}</span>
             <span className="mt-1 text-xs text-[#777]">{kind === "color_suit" ? "Selfie or outfit image" : kind === "hair_analysis" ? "Face and hair image" : "Clean selfie for makeup shades"}</span>
-            <input type="file" accept="image/*" className="hidden" onChange={(event) => onFileChange(event.target.files?.[0] || null)} />
+            <input type="file" accept="image/*" capture="user" className="hidden" onChange={(event) => onFileChange(event.target.files?.[0] || null)} />
           </label>
           <button type="button" onClick={openCamera} className="liquid-panel flex items-center justify-center gap-2 rounded-full px-6 py-4 text-sm font-black transition hover:scale-[1.02]">
             <Camera className="h-4 w-4" />
@@ -1430,6 +1507,16 @@ function buildReportText(kind: AnalysisKind, result: Record<string, any>) {
     ["Makeup palette", result.makeupPalette],
     ["Hairstyles", result.styles],
     ["Hair colors", result.hairColors],
+    ["Expression", result.visibleExpression ? [result.visibleExpression] : null],
+    ["Skin type", result.skinType ? [result.skinType] : null],
+    ["Hair type", result.hairType ? [result.hairType] : null],
+    ["Face, hairstyle and details", result.faceDetails],
+    ["Style and fashion observations", result.styleObservations],
+    ["Photo quality, lighting and pose", result.photoQuality],
+    ["Professional profile photo feedback", result.professionalProfileFeedback],
+    ["AI glow-up suggestions", result.looksmaxxingSuggestions],
+    ["Symmetry and aesthetic observations", result.symmetryObservations],
+    ["Compliments", result.compliments],
     ["Face structure", result.faceStructure],
     ["Body structure", result.bodyStructure],
     ["Skin care tips", result.skinCareTips],
@@ -1461,6 +1548,37 @@ function downloadReport(kind: AnalysisKind, result: Record<string, any>) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function InsightReport({ result }: { result: Record<string, any> }) {
+  const profileFacts = [
+    result.visibleExpression && `Expression: ${result.visibleExpression}`,
+    result.skinType && `Skin type signal: ${result.skinType}`,
+    result.hairType && `Hair type signal: ${result.hairType}`,
+    result.faceDetails?.shape && `Face shape: ${result.faceDetails.shape}`,
+    result.faceDetails?.hairstyle && `Hairstyle: ${result.faceDetails.hairstyle}`,
+    result.faceDetails?.glasses && `Glasses: ${result.faceDetails.glasses}`,
+    result.faceDetails?.makeup && `Makeup: ${result.faceDetails.makeup}`,
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="grid gap-4">
+      {result.compliments?.length > 0 && (
+        <div className="liquid-panel rounded-[32px] p-5">
+          <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-[#777]">Glowra compliments</h4>
+          <p className="text-2xl font-black leading-9 text-[#40384D]">{result.compliments[0]}</p>
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <InfoList title="Face, hair and photo read" items={profileFacts} />
+        <InfoList title="Photo quality and pose" items={result.photoQuality || []} />
+        <InfoList title="Style and fashion observations" items={result.styleObservations || []} />
+        <InfoList title="Professional profile feedback" items={result.professionalProfileFeedback || []} />
+        <InfoList title="AI glow-up suggestions" items={result.looksmaxxingSuggestions || []} />
+        <InfoList title="Symmetry notes" items={result.symmetryObservations || []} />
+      </div>
+    </div>
+  );
 }
 
 function ResultJson({ result, kind, photoUrl, generatedImage, visualizationLoading }: { result: Record<string, any>; kind: AnalysisKind; photoUrl?: string; generatedImage?: string | null; visualizationLoading?: boolean }) {
@@ -1509,6 +1627,8 @@ function ResultJson({ result, kind, photoUrl, generatedImage, visualizationLoadi
       </div>
 
       <BeautyAnalytics result={result} />
+
+      <InsightReport result={result} />
 
       {photoUrl && <PhotoTryOn kind={kind} result={result} photoUrl={photoUrl} />}
 
@@ -1709,6 +1829,79 @@ function HistoryView({ history, refresh }: { history: HistoryItem[]; refresh: ()
         })}
       </div>
     </GlassCard>
+  );
+}
+
+function GlowChat({ history, profile }: { history: HistoryItem[]; profile: Profile | null }) {
+  const latest = history[0]?.analysis_results?.[0]?.result_json || {};
+  const [messages, setMessages] = useState([
+    {
+      role: "ai",
+      text: `Hi ${profile?.name || "beautiful"} 💖 Ask me about your skin type, hair type, colors, outfit, makeup, photo pose, or what to do / avoid.`,
+    },
+  ]);
+  const [draft, setDraft] = useState("");
+
+  function answerQuestion(question: string) {
+    const q = question.toLowerCase();
+    if (!history.length) {
+      return "Upload or capture one selfie first, then run any Glowra analysis. After that I can answer from your saved report, photo, and try-on results ✨";
+    }
+    if (q.includes("skin")) {
+      return `Your current skin signal is ${latest.skinType || "normal to combination"}. Do: ${(latest.skinCareTips || ["gentle cleanser", "sunscreen", "light moisturizer"]).join(", ")}. Avoid harsh scrubs, sleeping in makeup, and skipping sunscreen.`;
+    }
+    if (q.includes("hair")) {
+      return `Your current hair signal is ${latest.hairType || latest.faceDetails?.hairstyle || "natural medium-density hair"}. Do: ${(latest.hairCareTips || latest.careTips || ["heat protectant", "weekly mask", "soft face framing"]).join(", ")}. Avoid high heat without protection and heavy oil near the scalp.`;
+    }
+    if (q.includes("color") || q.includes("outfit") || q.includes("wear")) {
+      return `Best outfit direction: ${(latest.bestColors || ["soft rose", "ivory", "clear aqua"]).join(", ")}. Try one main color near your neckline and keep accessories clean. You can use the try-on swatches on your photo for accuracy.`;
+    }
+    if (q.includes("makeup")) {
+      const shades = (latest.makeupPalette || []).map((item: any) => `${item.type}: ${item.name}`).join(", ");
+      return shades ? `Makeup match: ${shades}. Keep the base thin, blush high, and lip soft glossy 💄` : "For makeup, keep a thin satin base, soft blush, groomed brows, and a glossy lip. Run Makeup AI for exact shades.";
+    }
+    if (q.includes("photo") || q.includes("profile") || q.includes("pose")) {
+      return `Profile photo tips: ${(latest.professionalProfileFeedback || ["plain background", "eye-level camera", "relaxed shoulders"]).join(", ")}. Your best vibe is clean, bright, and approachable.`;
+    }
+    if (q.includes("avoid") || q.includes("not")) {
+      return `Avoid: ${(latest.avoidColors || latest.avoidShades || ["heavy filters", "dim overhead lighting", "too many competing colors near the face"]).join(", ")}. Keep it simple and let your face stay the focus.`;
+    }
+    return `${latest.compliments?.[0] || "You have a lovely soft glow ✨"} My quick suggestion: use your saved report, try the palette/hair/makeup preview on your own photo, and keep lighting bright for better accuracy.`;
+  }
+
+  function send(event: React.FormEvent) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    setMessages((current) => [...current, { role: "user", text }, { role: "ai", text: answerQuestion(text) }]);
+    setDraft("");
+  }
+
+  return (
+    <main className="mx-auto grid w-full max-w-5xl gap-6">
+      <GlassCard className="p-6">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-[#FF8E8E]">Glowra chatbot</p>
+        <h1 className="mt-2 text-3xl font-black tracking-normal">Ask about skin, hair, colors, makeup, and photo glow</h1>
+        <div className="mt-6 grid max-h-[56vh] gap-3 overflow-y-auto rounded-[28px] bg-white/45 p-4">
+          {messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={cx("max-w-[86%] rounded-[24px] px-5 py-3 text-sm font-semibold leading-6", message.role === "ai" ? "liquid-panel justify-self-start" : "luxury-button justify-self-end text-white")}>
+              {message.text}
+            </div>
+          ))}
+        </div>
+        <form onSubmit={send} className="mt-4 flex gap-3">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask what to do, what to avoid, or which look suits you..."
+            className="liquid-panel min-w-0 flex-1 rounded-full border border-white/70 px-5 py-4 text-sm font-semibold outline-none"
+          />
+          <button className="luxury-button grid h-14 w-14 place-items-center rounded-full text-white" aria-label="Send chat message">
+            <Send className="h-5 w-5" />
+          </button>
+        </form>
+      </GlassCard>
+    </main>
   );
 }
 
